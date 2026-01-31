@@ -1,18 +1,9 @@
-// Define color sensor pins
-#define S0 0 
-#define S1 13 
-#define S2 1 
-#define S3 2 
-#define sensorOut 3
-
-// Calibration Values
-// *Get these from Calibration Sketch
-int redMin = 60; // Red minimum value
-int redMax = 117; // Red maximum value
-int greenMin = 117; // Green minimum value
-int greenMax = 200; // Green maximum value
-int blueMin = 127; // Blue minimum value
-int blueMax = 199; // Blue maximum value
+// Define color sensor pins 
+#define S0 A1 
+#define S1 A0 
+#define S2 12
+#define S3 11
+#define sensorOut 13
 
 // Variables for Color Pulse Width Measurements
 int redPW = 0;
@@ -31,12 +22,12 @@ void initColourSensor() {
 	pinMode(S2, OUTPUT);
 	pinMode(S3, OUTPUT);
 
-	// Set Sensor output as input
-	pinMode(sensorOut, INPUT);
-
-	// Set Frequency scaling to 20%
+	// Set Pulse Width scaling to 20%
 	digitalWrite(S0,HIGH);
 	digitalWrite(S1,LOW);
+
+	// Set Sensor output as input
+	pinMode(sensorOut, INPUT);
 
 	// Setup Serial Monitor
 	Serial.begin(9600);
@@ -45,32 +36,26 @@ void initColourSensor() {
 void updateColourLoop() {
 	// Read Red value
 	redPW = getRedPW();
-	// Map to value from 0-255
-	redValue = map(redPW, redMin,redMax,255,0);
 	// Delay to stabilize sensor
 	delay(200);
 
-	// Read Green value
+	// Read Green Pulse Width
 	greenPW = getGreenPW();
-	// Map to value from 0-255
-	greenValue = map(greenPW, greenMin,greenMax,255,0);
 	// Delay to stabilize sensor
 	delay(200);
 
-	// Read Blue value
+	// Read Blue Pulse Width
 	bluePW = getBluePW();
-	// Map to value from 0-255
-	blueValue = map(bluePW, blueMin,blueMax,255,0);
 	// Delay to stabilize sensor
 	delay(200);
 
 	// Print output to Serial Monitor
-	Serial.print("Red = ");
-	Serial.print(redValue);
-	Serial.print(" - Green = ");
-	Serial.print(greenValue);
-	Serial.print(" - Blue = ");
-	Serial.println(blueValue);
+	Serial.print("Red PW = ");
+	Serial.print(redPW);
+	Serial.print(" - Green PW = ");
+	Serial.print(greenPW);
+	Serial.print(" - Blue PW = ");
+	Serial.println(bluePW);
 }
 
 
