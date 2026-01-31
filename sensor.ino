@@ -2,11 +2,11 @@
 
 Servo myServo;   // create servo object
 
-void setup() {
+void initServo() {
   myServo.attach(9);  // attach servo to pin 9
 }
 
-void loop() {
+void sweepServo() {
   // Move from 0 to 180
   for (int pos = 0; pos <= 180; pos++) {
     myServo.write(pos);
@@ -18,4 +18,8 @@ void loop() {
     myServo.write(pos);
     delay(15);
   }
+}
+
+void setServoAngle(int angle){
+  myServo.write(angle);
 }

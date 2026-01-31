@@ -24,7 +24,7 @@ int redValue;
 int greenValue;
 int blueValue;
 
-void setup() {
+void initColourSensor() {
 	// Set S0 - S3 as outputs
 	pinMode(S0, OUTPUT);
 	pinMode(S1, OUTPUT);
@@ -42,7 +42,7 @@ void setup() {
 	Serial.begin(9600);
 }
 
-void loop() {
+void updateColourLoop() {
 	// Read Red value
 	redPW = getRedPW();
 	// Map to value from 0-255
