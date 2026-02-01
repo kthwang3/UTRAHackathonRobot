@@ -167,10 +167,9 @@ void decideTurn() {
 #define FORWARD_STEP_MS 120
 #define SCORE_THRESHOLD 30L
 
-// Ultrasonic sensor (right-side) - HC-SR04 style
-#define US_TRIG_PIN 2
-#define US_ECHO_PIN 3
-#define OBSTACLE_DIST_CM 25  // if an object is closer than this, avoid
+#define US_TRIG_PIN 3
+#define US_ECHO_PIN 2
+#define OBSTACLE_DIST_CM 15  // if an object is closer than this, avoid
 #define BACKUP_MS 300
 #define AVOID_TURN_MS 350
 
@@ -180,18 +179,19 @@ void ultrasonicSetup() {
   digitalWrite(US_TRIG_PIN, LOW);
 }
 
-long readDistanceCM() {
-  // Send a 10us pulse to trigger
+float readDistanceCM() {
+  // Trigger pulse (match obstaclecourse implementation)
   digitalWrite(US_TRIG_PIN, LOW);
   delayMicroseconds(2);
   digitalWrite(US_TRIG_PIN, HIGH);
   delayMicroseconds(10);
   digitalWrite(US_TRIG_PIN, LOW);
 
-  long duration = pulseIn(US_ECHO_PIN, HIGH, 30000); // timeout 30ms
-  if (duration <= 0) return 300; // no echo -> far away
-  // Speed of sound ~343 m/s => 29.1 microsec per cm for round trip
-  long cm = duration / 29 / 2;
+  unsigned long duration = pulseIn(US_ECHO_PIN, HIGH, 30000); // timeout 30ms
+  if (duration == 0) return -1.0f; // no reading
+
+  // Convert to cm using 0.0343 cm/us speed of sound and /2 for round trip
+  float cm = (duration * 0.0343f) / 2.0f;
   return cm;
 }
 
