@@ -49,29 +49,7 @@ const int STEER_SPEED = 180;
 const int STEER_MS = 120;       // how long each search turn
 const int SEARCH_TIMEOUT_MS = 5000;  // max time to search for line after avoid
 
-// Returns true when red (on line) is seen again
-bool searchForLine() {
-    unsigned long start = millis();
-    static bool searchLeft = true;
-    while (millis() - start < (unsigned long)SEARCH_TIMEOUT_MS) {
-        colorSensorRead(redPW, greenPW, bluePW);
-        if (redPW < greenPW) {
-            stopMotors();
-            Serial.println("Line found!");
-            return true;
-        }
-        if (searchLeft) {
-            turnLeft(STEER_SPEED);
-        }else{
-            turnRight(STEER_SPEED);
-        }   
-        delay(STEER_MS);
-        searchLeft = !searchLeft;
-    }
-    stopMotors();
-    Serial.println("Search timeout");
-    return false;
-}
+
 void avoidObstacle() {
     stopMotors();
     Serial.println("Obstacle detected, avoiding...");
