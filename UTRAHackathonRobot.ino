@@ -15,16 +15,45 @@ void setup() {
     motorSetup();
 }
 
-void loop() {
-    colorSensorRead(redPW, greenPW, bluePW);
-    moveForward(motorSpeed);
-    delay(2000);
+enum ColorState {
+        RED = 1,
+        GREEN = 2,
+};
 
-    Serial.print("Red PW = ");
-    Serial.print(redPW);
-    Serial.print(" - Green PW = ");
-    Serial.print(greenPW);
-    Serial.print(" - Blue PW = ");
-    Serial.println(bluePW);
-    delay(1000);
+ColorState currentState = GREEN;
+
+void loop() {
+    /*
+    colorSensorRead(redPW, greenPW, bluePW);
+
+    if(greenPW < redPW){
+        currentState = GREEN; 
+        stopMotors();
+        Serial.println(5);
+    } else if(redPW < greenPW){
+        Serial.println(4);
+        currentState = RED;
+    }
+    if(currentState == RED){
+        moveForward(motorSpeed);
+    }
+    Serial.println(currentState);
+    */
+    Serial.println("Testing: Move Backward + Turn Right");
+    moveBackward(motorSpeed);
+    delay(2000);           // move backward for 2 seconds
+    turnRight(motorSpeed);
+    delay(3000);           // turn right for 3 seconds
+    stopMotors();
+    Serial.println("Stopped");
+    delay(2000);           // wait 2 seconds
+
+    Serial.println("Testing: Move Backward + Turn Left");
+    moveBackward(motorSpeed);
+    delay(2000);           // move backward for 2 seconds
+    turnLeft(motorSpeed);
+    delay(3000);           // turn left for 3 seconds
+    stopMotors();
+    Serial.println("Stopped");
+    delay(2000);           // wait 2 seconds
 }
