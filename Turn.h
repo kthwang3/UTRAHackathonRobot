@@ -1,3 +1,4 @@
+#pragma once
 #include <Arduino.h>
 
 //////////////////////////////
@@ -26,40 +27,56 @@ void colorSensorSetup() {
 int readRedPW() {
   digitalWrite(S2, LOW);
   digitalWrite(S3, LOW);
-  return pulseIn(sensorOut, LOW);
+  return pulseIn(sensorOut, LOW, 30000); // timeout helps avoid hangs
 }
 
 int readGreenPW() {
   digitalWrite(S2, HIGH);
   digitalWrite(S3, HIGH);
-  return pulseIn(sensorOut, LOW);
+  return pulseIn(sensorOut, LOW, 30000);
 }
 
 int readBluePW() {
   digitalWrite(S2, LOW);
   digitalWrite(S3, HIGH);
-  return pulseIn(sensorOut, LOW);
+  return pulseIn(sensorOut, LOW, 30000);
 }
 
 void readColor(int &r, int &g, int &b) {
   r = readRedPW();
-  delay(50);
+  delay(5);
   g = readGreenPW();
-  delay(50);
+  delay(5);
   b = readBluePW();
-  delay(50);
+  delay(5);
+}
+
+unsigned long readSumPW() {
+  int r, g, b;
+  readColor(r, g, b);
+
+  // If pulseIn times out it returns 0 — avoid zero wrecking logic
+  if (r <= 0) r = 30000;
+  if (g <= 0) g = 30000;
+  if (b <= 0) b = 30000;
+
+  unsigned long s = (unsigned long)r + (unsigned long)g + (unsigned long)b;
+
+  // light smoothing
+  static unsigned long sFilt = 0;
+  if (sFilt == 0) sFilt = s;
+  sFilt = (sFilt * 3 + s) / 4;
+  return sFilt;
 }
 
 //////////////////////////////
 // MOTOR CONTROL (L298N)
 //////////////////////////////
 
-// Left motor
 #define ENA 9
 #define IN1 8
 #define IN2 7
 
-// Right motor
 #define ENB 4
 #define IN3 6
 #define IN4 5
@@ -71,133 +88,91 @@ void stopMotors() {
   analogWrite(ENB, 0);
 }
 
-void moveForward(int speed) {
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
-  analogWrite(ENA, speed);
-  analogWrite(ENB, speed);
+void driveForward(int leftSpeed, int rightSpeed) {
+  leftSpeed  = constrain(leftSpeed, 0, 255);
+  rightSpeed = constrain(rightSpeed, 0, 255);
+
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
+
+  analogWrite(ENA, leftSpeed);
+  analogWrite(ENB, rightSpeed);
 }
 
 void turnRightInPlace(int speed) {
-  digitalWrite(IN1, HIGH);
-  digitalWrite(IN2, LOW);
-  digitalWrite(IN3, LOW);
-  digitalWrite(IN4, HIGH);
+  digitalWrite(IN1, HIGH); digitalWrite(IN2, LOW);
+  digitalWrite(IN3, LOW);  digitalWrite(IN4, HIGH);
   analogWrite(ENA, speed);
   analogWrite(ENB, speed);
 }
 
 void turnLeftInPlace(int speed) {
-  digitalWrite(IN1, LOW);
-  digitalWrite(IN2, HIGH);
-  digitalWrite(IN3, HIGH);
-  digitalWrite(IN4, LOW);
+  digitalWrite(IN1, LOW);  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, HIGH); digitalWrite(IN4, LOW);
   analogWrite(ENA, speed);
   analogWrite(ENB, speed);
 }
 
 //////////////////////////////
-// TURN LOGIC
+// LINE FOLLOW (FIXED THRESHOLD)
 //////////////////////////////
 
-enum TrackColor {
-  TRACK_RED,
-  TRACK_GREEN
-};
+// You said you want 150 for simplicity:
+const unsigned long BLACK_SUM_THRESH = 150;
 
-TrackColor currentTrack = TRACK_RED;
+// Tunables for behavior
+const int BASE_SPEED = 170;
+const int TURN_SPEED = 160;
+const int NUDGE_MS   = 60;   // how much we “peek” left/right
 
-// Convert pulse width to "strength"
-// smaller PW = stronger color
-long colorStrength(int pw) {
-  if (pw <= 0) pw = 1;
-  return 1000000L / pw;
+bool onBlack(unsigned long sumPW) {
+  // In your setup: black tape -> sum goes UP
+  return sumPW > BLACK_SUM_THRESH;
 }
 
-long scoreForTarget(int r, int g, TrackColor target) {
-  if (target == TRACK_RED) {
-    return colorStrength(r) - colorStrength(g);
-  } else {
-    return colorStrength(g) - colorStrength(r);
-  }
-}
+unsigned long sampleNudge(bool right) {
+  if (right) turnRightInPlace(TURN_SPEED);
+  else       turnLeftInPlace(TURN_SPEED);
 
-long scanDirection(bool right) {
-  int r, g, b;
-  long totalScore = 0;
-
-  if (right) turnRightInPlace(motorSpeed);
-  else       turnLeftInPlace(motorSpeed);
-
-  delay(200);
+  delay(NUDGE_MS);
   stopMotors();
-  delay(80);
+  delay(15);
 
-  for (int i = 0; i < 5; i++) {
-    readColor(r, g, b);
-    totalScore += scoreForTarget(r, g, currentTrack);
-    delay(40);
-  }
-
-  return totalScore;
+  return readSumPW();
 }
 
-void decideTurn() {
-  long rightScore = scanDirection(true);
+void followLineStep() {
+  unsigned long s = readSumPW();
+
+  if (onBlack(s)) {
+    // on the line: go straight
+    driveForward(BASE_SPEED, BASE_SPEED);
+    return;
+  }
+
+  // off line: peek right then left, choose the side with "more black" (bigger sum)
+  unsigned long sRight = sampleNudge(true);
 
   // return to center
-  turnLeftInPlace(motorSpeed);
-  delay(200);
+  turnLeftInPlace(TURN_SPEED);
+  delay(NUDGE_MS);
   stopMotors();
-  delay(100);
+  delay(15);
 
-  long leftScore = scanDirection(false);
+  unsigned long sLeft = sampleNudge(false);
 
   // return to center
-  turnRightInPlace(motorSpeed);
-  delay(200);
+  turnRightInPlace(TURN_SPEED);
+  delay(NUDGE_MS);
   stopMotors();
-  delay(100);
+  delay(15);
 
-  if (rightScore > leftScore) {
-    turnRightInPlace(motorSpeed);
-    delay(300);
+  if (sRight > sLeft) {
+    // black is more to the right -> steer right
+    driveForward(BASE_SPEED + 15, BASE_SPEED - 40);
   } else {
-    turnLeftInPlace(motorSpeed);
-    delay(300);
+    // black is more to the left -> steer left
+    driveForward(BASE_SPEED - 40, BASE_SPEED + 15);
   }
-
-  stopMotors();
 }
 
-//////////////////////////////
-// ARDUINO SETUP / LOOP
-//////////////////////////////
-
-void setup() {
-  pinMode(ENA, OUTPUT);
-  pinMode(IN1, OUTPUT);
-  pinMode(IN2, OUTPUT);
-
-  pinMode(ENB, OUTPUT);
-  pinMode(IN3, OUTPUT);
-  pinMode(IN4, OUTPUT);
-
-  stopMotors();
-  colorSensorSetup();
-}
-
-void loop() {
-  // Example usage:
-  moveForward(motorSpeed);
-  delay(1500);
-
-  stopMotors();
-  delay(300);
-
-  decideTurn();
-
-  delay(2000);
-}
