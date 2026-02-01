@@ -23,7 +23,44 @@ enum ColorState {
 
 ColorState currentState = GREEN;
 
+#define OBSTACLE_THRESHOLD_CM 15
+
+
 void loop() {
+
+    int distance = getDistanceCM();
+    if distance >= 0 && distance < OBSTACLE_THRESHOLD_CM{
+        stopMotors();
+        Serial.println("Obstacle: ");
+        Serial.println(distance);
+        delay(200);
+        return;
+    }
+    if (greenPW < redPW){
+        greenState = GREEN;
+        stopMotors();
+        serial.println("Green (stopped)");
+    }else if(redPW < greenPW){
+        currentState = RED;
+        serial.println("Red (moving)");
+    }
+
+    if (currentState == RED){
+        moveForward(motorSpeed);
+    }else{
+        stopMotors();
+    }
+
+    Serial.print("dist=");
+    Serial.print(distance);
+    Serial.print(" R=");
+    Serial.print(redPW);
+    Serial.print(" G=");
+    Serial.print(greenPW);
+    Serial.print(" B=");
+    Serial.println(bluePW);
+
+    delay(100);
     /*
     colorSensorRead(redPW, greenPW, bluePW);
 
