@@ -60,12 +60,12 @@ inline void motorSetup() {
     stopMotors();
 }
 
-inline void moveForward(int speed) {
+inline void moveBackward(int speed) {
     setMotor(IN1, IN2, ENA, speed, false);                 // left motor normal
     setMotor(IN3, IN4, ENB, speed, RIGHT_MOTOR_REVERSED);  // right motor reversed
 }
 
-inline void moveBackward(int speed) {
+inline void moveForward(int speed) {
     setMotor(IN1, IN2, ENA, speed, true);                  // left motor backward
     setMotor(IN3, IN4, ENB, speed, !RIGHT_MOTOR_REVERSED); // right motor backward
 }

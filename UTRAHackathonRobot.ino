@@ -2,7 +2,7 @@
 #include "moveforward.h"
 #include "ServoDriver.h"
 #include "ultraSensor.h"
-#define BLACK_THRESHOLD 760
+#define BLACK_THRESHOLD 150
 
 
 int redPW = 0;
