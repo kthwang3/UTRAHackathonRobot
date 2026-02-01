@@ -76,19 +76,16 @@ void loop() {
         return;
     }
 
-    if (greenPW < redPW){
+    // read color sensor and go forward when red
+    colorSensorRead(redPW, greenPW, bluePW);
+    if (redPW < greenPW){
+        currentState = RED;
+        moveForward(motorSpeed);
+        serial.println("Red (moving)");
+    }else{
         currentState = GREEN;
         stopMotors();
         serial.println("Green (stopped)");
-    }else if(redPW < greenPW){
-        currentState = RED;
-        serial.println("Red (moving)");
-    }
-
-    if (currentState == RED){
-        moveForward(motorSpeed);
-    }else{
-        stopMotors();
     }
 
     Serial.print("dist=");
@@ -99,26 +96,5 @@ void loop() {
     Serial.print(greenPW);
     Serial.print(" B=");
     Serial.println(bluePW);
-
-    delay(100);
-    /*
-    colorSensorRead(redPW, greenPW, bluePW);
-
-    if(greenPW < redPW){
-        currentState = GREEN; 
-        stopMotors();
-        Serial.println(5);
-    } else if(redPW < greenPW){
-        Serial.println(4);
-        currentState = RED;
-    }
-    if(currentState == RED){
-        moveForward(motorSpeed);
-    }
-    Serial.println(currentState);
-    */
-    if (currentState == RED){
-        moveForward(motorSpeed);
-    }
     delay(100);
 }
