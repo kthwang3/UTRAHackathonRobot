@@ -1,9 +1,3 @@
-// Separate sketch: RedFollow.ino
-// Standalone red-track follower for initial development and tuning.
-// This copies the minimal sensor + motor routines so it builds as its own
-// Arduino sketch in the `red_follow` folder and won't interfere with
-// the main `Turn.ino` in the repo root.
-
 #include <ColorSensor.h>
 
 //////////////////////////////
@@ -173,6 +167,57 @@ void decideTurn() {
 #define FORWARD_STEP_MS 120
 #define SCORE_THRESHOLD 30L
 
+// Ultrasonic sensor (right-side) - HC-SR04 style
+#define US_TRIG_PIN 2
+#define US_ECHO_PIN 3
+#define OBSTACLE_DIST_CM 25  // if an object is closer than this, avoid
+#define BACKUP_MS 300
+#define AVOID_TURN_MS 350
+
+void ultrasonicSetup() {
+  pinMode(US_TRIG_PIN, OUTPUT);
+  pinMode(US_ECHO_PIN, INPUT);
+  digitalWrite(US_TRIG_PIN, LOW);
+}
+
+long readDistanceCM() {
+  // Send a 10us pulse to trigger
+  digitalWrite(US_TRIG_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(US_TRIG_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(US_TRIG_PIN, LOW);
+
+  long duration = pulseIn(US_ECHO_PIN, HIGH, 30000); // timeout 30ms
+  if (duration <= 0) return 300; // no echo -> far away
+  // Speed of sound ~343 m/s => 29.1 microsec per cm for round trip
+  long cm = duration / 29 / 2;
+  return cm;
+}
+
+void moveBackward(int speed) {
+  // reverse both motors
+  digitalWrite(IN1, LOW);
+  digitalWrite(IN2, HIGH);
+  digitalWrite(IN3, LOW);
+  digitalWrite(IN4, HIGH);
+  analogWrite(ENA, speed);
+  analogWrite(ENB, speed);
+}
+
+void avoidRightObstacle() {
+  Serial.println("Right obstacle detected -> avoiding");
+  // Back up a bit, then turn left to steer away from the right-side block
+  moveBackward(motorSpeed);
+  delay(BACKUP_MS);
+  stopMotors();
+  delay(80);
+  turnLeftInPlace(motorSpeed);
+  delay(AVOID_TURN_MS);
+  stopMotors();
+  delay(80);
+}
+
 void followTrack() {
   int r, g, b;
   readColor(r, g, b);
@@ -182,6 +227,14 @@ void followTrack() {
   Serial.print(" G="); Serial.print(g);
   Serial.print(" B="); Serial.print(b);
   Serial.print(" score="); Serial.println(score);
+
+  // First: check right-side ultrasonic for blocks and avoid if needed
+  long dist = readDistanceCM();
+  Serial.print(" rightDist="); Serial.println(dist);
+  if (dist > 0 && dist < OBSTACLE_DIST_CM) {
+    avoidRightObstacle();
+    return;
+  }
 
   if (score >= SCORE_THRESHOLD) {
     moveForward(motorSpeed);
@@ -209,6 +262,7 @@ void setup() {
 
   stopMotors();
   colorSensorSetup();
+  ultrasonicSetup();
   Serial.begin(9600);
 }
 
