@@ -18,8 +18,6 @@ enum MissionState {
     STATE_DETECT_PATH,
     STATE_GREEN_PATH,
     STATE_RED_PATH,
-    STATE_TARGET_SHOOTING,
-    STATE_OBSTACLE_COURSE,
     STATE_RETURN_HOME,
     STATE_COMPLETE,
     STATE_ERROR
@@ -29,7 +27,7 @@ MissionState currentState = STATE_INIT;
 MissionState previousState = STATE_INIT;
 
 // =====================
-// SUB-STATES FOR COMPLEX TASKS
+// SUB-STATES
 // =====================
 enum GreenPathSubState {
     GREEN_CLIMB_RAMP,
@@ -58,38 +56,35 @@ int bluePW = 0;
 int distance = 0;
 
 // =====================
-// MOTOR SPEEDS
+// MOTOR SPEEDS - ACTIVE TUNING AREA
 // =====================
-const int SPEED_FAST = 255;
-const int SPEED_NORMAL = 200;
-const int SPEED_SLOW = 150;
-const int SPEED_TURN = 180;
-const int SPEED_RAMP = 255;
+const int SPEED_FORWARD = 180;      // Main forward speed
+const int SPEED_SLOW = 120;         // Careful movement
+const int SPEED_TURN = 150;         // Turning speed
+const int SPEED_SEARCH = 100;       // Slow search speed
+const int SPEED_RAMP = 200;         // Climbing ramp
 
 // =====================
-// COLOR THRESHOLDS (tune these based on your environment)
+// COLOR THRESHOLDS - ACTIVE TUNING AREA
+// Lower PW = stronger color detection on TCS3200
 // =====================
-const int BLACK_PW_THRESHOLD = 1500;
-const int WHITE_PW_MAX = 400;
-const int RED_DOMINANCE = 100;
-const int GREEN_DOMINANCE = 100;
-const int BLUE_DOMINANCE = 100;
+const int BLACK_PW_MIN = 800;       // Black has HIGH PW (dark = less reflection)
+const int WHITE_PW_MAX = 300;       // White has LOW PW (bright = more reflection)
+const int COLOR_DIFF_THRESHOLD = 80; // How much one channel must dominate
+
+// =====================
+// TIMING - ACTIVE TUNING AREA
+// =====================
+const int TURN_90_MS = 450;         // Time for 90-degree turn (tune for your robot!)
+const int SEARCH_STEP_MS = 150;     // Each search turn step
+const int FORWARD_BURST_MS = 200;   // Forward movement burst
+const int SEARCH_TIMEOUT_MS = 2000; // Give up searching
+const unsigned long MISSION_TIMEOUT_MS = 300000; // 5 minutes
 
 // =====================
 // DISTANCE THRESHOLDS
 // =====================
-const int OBSTACLE_CLOSE = 10;
-const int OBSTACLE_FAR = 20;
-const int WALL_DISTANCE = 8;
-
-// =====================
-// TIMING
-// =====================
-const int TURN_90_MS = 500;
-const int TURN_180_MS = 1000;
-const int BACKUP_MS = 400;
-const int SEARCH_TIMEOUT_MS = 3000;
-const unsigned long MISSION_TIMEOUT_MS = 300000;
+const int OBSTACLE_CLOSE = 12;
 
 // =====================
 // STATE FLAGS
@@ -102,11 +97,18 @@ bool ballLaunched = false;
 bool returnStarted = false;
 
 // =====================
-// TIMING TRACKING
+// LINE FOLLOWING STATE
+// =====================
+int searchDirection = 1;            // 1 = right, -1 = left
+int searchSteps = 0;                // How many search steps taken
+unsigned long lastLineTime = 0;     // When we last saw the line
+bool onLine = false;                // Are we currently on a line?
+
+// =====================
+// TIMING
 // =====================
 unsigned long missionStartTime = 0;
 unsigned long stateStartTime = 0;
-unsigned long lastActionTime = 0;
 
 // =====================
 // RECOVERY
@@ -128,141 +130,179 @@ void debugPrint(const char* msg) {
     }
 }
 
-void debugState() {
+void debugSensors() {
     if (debugMode) {
-        Serial.print("State: ");
-        Serial.print(currentState);
-        Serial.print(" | R:");
+        Serial.print("R:");
         Serial.print(redPW);
         Serial.print(" G:");
         Serial.print(greenPW);
         Serial.print(" B:");
         Serial.print(bluePW);
-        Serial.print(" | Dist:");
-        Serial.println(distance);
+        Serial.print(" D:");
+        Serial.print(distance);
+        Serial.print(" | ");
+
+        // Print detected color
+        if (isOnBlackLine()) Serial.print("BLACK ");
+        if (isOnRedLine()) Serial.print("RED ");
+        if (isOnGreenLine()) Serial.print("GREEN ");
+        if (isOnBlueSurface()) Serial.print("BLUE ");
+        if (isOnWhiteSurface()) Serial.print("WHITE ");
+        Serial.println();
     }
 }
 
 // =====================
-// COLOR DETECTION
+// COLOR DETECTION - Simplified and robust
 // =====================
-bool isBlack() {
-    return (redPW > BLACK_PW_THRESHOLD && greenPW > BLACK_PW_THRESHOLD);
-}
-
-bool isWhite() {
-    return (redPW < WHITE_PW_MAX && greenPW < WHITE_PW_MAX && bluePW < WHITE_PW_MAX);
-}
-
-bool isRed() {
-    return (redPW < greenPW - RED_DOMINANCE && redPW < bluePW - RED_DOMINANCE);
-}
-
-bool isGreen() {
-    return (greenPW < redPW - GREEN_DOMINANCE && greenPW < bluePW - GREEN_DOMINANCE);
-}
-
-bool isBlue() {
-    return (bluePW < redPW - BLUE_DOMINANCE && bluePW < greenPW - BLUE_DOMINANCE);
-}
-
 void readSensors() {
     colorSensorRead(redPW, greenPW, bluePW);
     distance = getDistanceCM();
 }
 
+// Black line = all channels have HIGH pulse width (dark surface reflects less)
+bool isOnBlackLine() {
+    return (redPW > BLACK_PW_MIN && greenPW > BLACK_PW_MIN && bluePW > BLACK_PW_MIN);
+}
+
+// White surface = all channels have LOW pulse width (bright surface reflects more)
+bool isOnWhiteSurface() {
+    return (redPW < WHITE_PW_MAX && greenPW < WHITE_PW_MAX && bluePW < WHITE_PW_MAX);
+}
+
+// Red line = red channel significantly lower than others (stronger red)
+bool isOnRedLine() {
+    return (redPW < greenPW - COLOR_DIFF_THRESHOLD &&
+            redPW < bluePW - COLOR_DIFF_THRESHOLD &&
+            redPW < 600);  // Also check it's reasonably strong
+}
+
+// Green line = green channel significantly lower than others
+bool isOnGreenLine() {
+    return (greenPW < redPW - COLOR_DIFF_THRESHOLD &&
+            greenPW < bluePW - COLOR_DIFF_THRESHOLD &&
+            greenPW < 600);
+}
+
+// Blue surface = blue channel significantly lower than others
+bool isOnBlueSurface() {
+    return (bluePW < redPW - COLOR_DIFF_THRESHOLD &&
+            bluePW < greenPW - COLOR_DIFF_THRESHOLD &&
+            bluePW < 600);
+}
+
+// Are we on ANY followable line?
+bool isOnAnyLine() {
+    return isOnBlackLine() || isOnRedLine() || isOnGreenLine();
+}
+
 // =====================
 // MOVEMENT HELPERS
 // =====================
-void turnLeftDegrees(int degrees, int speed) {
-    int ms = (degrees * TURN_90_MS) / 90;
-    turnLeft(speed);
-    delay(ms);
-    stopMotors();
+void goForward(int speed) {
+    moveForward(speed);
 }
 
-void turnRightDegrees(int degrees, int speed) {
-    int ms = (degrees * TURN_90_MS) / 90;
-    turnRight(speed);
-    delay(ms);
-    stopMotors();
-}
-
-void backup(int ms, int speed) {
+void goBackward(int speed, int ms) {
     moveBackward(speed);
     delay(ms);
     stopMotors();
 }
 
-void moveForwardTime(int ms, int speed) {
-    moveForward(speed);
+void turnLeftTime(int speed, int ms) {
+    turnLeft(speed);
     delay(ms);
     stopMotors();
 }
 
-// =====================
-// LINE FOLLOWING
-// =====================
-bool searchForLine(int timeoutMs) {
-    unsigned long start = millis();
-    bool searchLeft = true;
-
-    while (millis() - start < (unsigned long)timeoutMs) {
-        readSensors();
-
-        if (isBlack() || isRed() || isGreen()) {
-            stopMotors();
-            return true;
-        }
-
-        if (searchLeft) {
-            turnLeft(SPEED_TURN);
-        } else {
-            turnRight(SPEED_TURN);
-        }
-        delay(100);
-        stopMotors();
-        delay(50);
-        searchLeft = !searchLeft;
-    }
-
+void turnRightTime(int speed, int ms) {
+    turnRight(speed);
+    delay(ms);
     stopMotors();
-    return false;
 }
 
-void followLine() {
-    int pos = getLinePosition();
-
-    if (pos == 0) {
-        moveForward(SPEED_NORMAL);
-    } else if (pos < 0) {
-        turnLeft(SPEED_TURN);
-        delay(50);
-    } else {
-        turnRight(SPEED_TURN);
-        delay(50);
-    }
+void turn180() {
+    turnRightTime(SPEED_TURN, TURN_90_MS * 2);
 }
 
-void followLineWithColor() {
+// =====================
+// SMART LINE FOLLOWING
+// This is the core fix - moves forward by default, searches intelligently
+// =====================
+void smartLineFollow() {
     readSensors();
 
-    if (isBlack()) {
-        moveForward(SPEED_NORMAL);
-    } else if (isRed()) {
-        moveForward(SPEED_NORMAL);
-    } else if (isGreen()) {
-        moveForward(SPEED_NORMAL);
-    } else {
-        static bool searchDir = true;
-        if (searchDir) {
-            turnLeft(SPEED_TURN);
-        } else {
-            turnRight(SPEED_TURN);
+    // Check for obstacles first
+    if (distance > 0 && distance < OBSTACLE_CLOSE) {
+        debugPrint("Obstacle!");
+        avoidObstacle();
+        return;
+    }
+
+    // Are we on a line?
+    if (isOnAnyLine()) {
+        // YES - we found/are on a line
+        onLine = true;
+        lastLineTime = millis();
+        searchSteps = 0;
+
+        // Just go forward!
+        goForward(SPEED_FORWARD);
+
+        if (isOnBlackLine()) {
+            // debugPrint("Following BLACK");
+        } else if (isOnRedLine()) {
+            // debugPrint("Following RED");
+        } else if (isOnGreenLine()) {
+            // debugPrint("Following GREEN");
         }
-        delay(80);
-        stopMotors();
-        searchDir = !searchDir;
+    } else {
+        // NOT on a line - need to search
+        unsigned long timeSinceLine = millis() - lastLineTime;
+
+        if (timeSinceLine < 300) {
+            // Just lost the line - keep going forward briefly
+            // The line might just be a small gap
+            goForward(SPEED_SLOW);
+        } else if (timeSinceLine < SEARCH_TIMEOUT_MS) {
+            // Lost for a bit - do a search pattern
+            stopMotors();
+            delay(50);
+
+            // Alternate left-right search, increasing arc
+            searchSteps++;
+            int turnTime = SEARCH_STEP_MS * ((searchSteps / 2) + 1);
+            turnTime = min(turnTime, 500); // Cap at 500ms
+
+            if (searchDirection > 0) {
+                turnRight(SPEED_SEARCH);
+            } else {
+                turnLeft(SPEED_SEARCH);
+            }
+            delay(turnTime);
+            stopMotors();
+
+            // Check if we found the line
+            readSensors();
+            if (isOnAnyLine()) {
+                onLine = true;
+                lastLineTime = millis();
+                searchSteps = 0;
+                return;
+            }
+
+            // Flip search direction
+            searchDirection = -searchDirection;
+
+        } else {
+            // Lost for too long - move forward and try again
+            debugPrint("Search timeout - moving forward");
+            goForward(SPEED_SLOW);
+            delay(FORWARD_BURST_MS);
+            stopMotors();
+            lastLineTime = millis(); // Reset timer
+            searchSteps = 0;
+        }
     }
 }
 
@@ -274,30 +314,31 @@ void avoidObstacle() {
     stopMotors();
     delay(100);
 
-    backup(BACKUP_MS, SPEED_SLOW);
+    // Back up
+    goBackward(SPEED_SLOW, 400);
     delay(100);
 
-    turnRightDegrees(90, SPEED_TURN);
+    // Turn right
+    turnRightTime(SPEED_TURN, TURN_90_MS);
     delay(100);
 
-    moveForwardTime(500, SPEED_SLOW);
-    delay(100);
+    // Go around
+    goForward(SPEED_SLOW);
+    delay(500);
+    stopMotors();
 
-    turnLeftDegrees(90, SPEED_TURN);
-    delay(100);
+    // Turn back toward original direction
+    turnLeftTime(SPEED_TURN, TURN_90_MS / 2);
 
-    moveForwardTime(600, SPEED_SLOW);
-    delay(100);
+    // Continue forward
+    goForward(SPEED_SLOW);
+    delay(600);
+    stopMotors();
 
-    turnLeftDegrees(90, SPEED_TURN);
-    delay(100);
+    // Turn to rejoin path
+    turnLeftTime(SPEED_TURN, TURN_90_MS / 2);
 
-    moveForwardTime(500, SPEED_SLOW);
-    delay(100);
-
-    turnRightDegrees(90, SPEED_TURN);
-
-    searchForLine(SEARCH_TIMEOUT_MS);
+    lastLineTime = millis();
 }
 
 bool obstacleAhead() {
@@ -317,11 +358,13 @@ void handleInit() {
     irSensorSetup();
     initServos();
 
+    // Start with claw open and arm down
     clawOpen();
     delay(300);
     armDown();
     delay(500);
 
+    lastLineTime = millis();
     currentState = STATE_PICKUP_BOX;
     stateStartTime = millis();
 }
@@ -338,29 +381,31 @@ void handlePickupBox() {
         boxPickedUp = true;
         currentState = STATE_CARRY_TO_ZONE;
         stateStartTime = millis();
+        lastLineTime = millis();
     }
 }
 
 void handleCarryToZone() {
     readSensors();
+    debugSensors();
 
-    if (obstacleAhead()) {
-        avoidObstacle();
-        return;
-    }
-
-    if (isWhite() || isBlue()) {
-        debugPrint("Zone detected");
+    // Check if we reached the drop zone (white or blue)
+    if (isOnWhiteSurface() || isOnBlueSurface()) {
+        debugPrint("Drop zone detected!");
         stopMotors();
+        delay(200);
         currentState = STATE_DROP_BOX;
         stateStartTime = millis();
         return;
     }
 
-    followLineWithColor();
+    // Follow the line to the zone
+    smartLineFollow();
 
-    if (millis() - stateStartTime > 30000) {
-        debugPrint("Timeout carrying to zone");
+    // Timeout failsafe
+    if (millis() - stateStartTime > 45000) {
+        debugPrint("Carry timeout - dropping anyway");
+        stopMotors();
         currentState = STATE_DROP_BOX;
     }
 }
@@ -370,9 +415,11 @@ void handleDropBox() {
         debugPrint("Dropping box");
         stopMotors();
 
-        backup(300, SPEED_SLOW);
+        // Back up slightly
+        goBackward(SPEED_SLOW, 200);
         delay(200);
 
+        // Release
         armDown();
         delay(400);
         clawOpen();
@@ -382,46 +429,51 @@ void handleDropBox() {
 
         boxDropped = true;
 
-        moveForwardTime(400, SPEED_SLOW);
+        // Move forward past the drop zone
+        goForward(SPEED_SLOW);
+        delay(500);
+        stopMotors();
 
         currentState = STATE_DETECT_PATH;
         stateStartTime = millis();
+        lastLineTime = millis();
     }
 }
 
 void handleDetectPath() {
     readSensors();
+    debugSensors();
 
-    debugPrint("Detecting path split");
-
-    moveForward(SPEED_SLOW);
+    // Move forward slowly while looking for colored paths
+    goForward(SPEED_SLOW);
     delay(100);
+    stopMotors();
 
     readSensors();
 
-    if (isRed()) {
-        debugPrint("RED path detected - Obstacle Course");
-        stopMotors();
+    if (isOnRedLine()) {
+        debugPrint("RED path - Obstacle Course");
         pathChosen = true;
         currentState = STATE_RED_PATH;
         redSubState = RED_FOLLOW_PATH;
         stateStartTime = millis();
+        lastLineTime = millis();
         return;
     }
 
-    if (isGreen()) {
-        debugPrint("GREEN path detected - Target Shooting");
-        stopMotors();
+    if (isOnGreenLine()) {
+        debugPrint("GREEN path - Target Shooting");
         pathChosen = true;
         currentState = STATE_GREEN_PATH;
         greenSubState = GREEN_CLIMB_RAMP;
         stateStartTime = millis();
+        lastLineTime = millis();
         return;
     }
 
-    if (millis() - stateStartTime > 10000) {
-        debugPrint("Path detection timeout - defaulting to GREEN");
-        stopMotors();
+    // Keep searching
+    if (millis() - stateStartTime > 15000) {
+        debugPrint("Path timeout - defaulting to GREEN path");
         currentState = STATE_GREEN_PATH;
         greenSubState = GREEN_CLIMB_RAMP;
         stateStartTime = millis();
@@ -433,28 +485,24 @@ void handleDetectPath() {
 // =====================
 void handleGreenPath() {
     readSensors();
+    debugSensors();
 
     switch (greenSubState) {
         case GREEN_CLIMB_RAMP:
             handleClimbRamp();
             break;
-
         case GREEN_NAVIGATE_RINGS:
             handleNavigateRings();
             break;
-
         case GREEN_FIND_BLACK_CENTER:
             handleFindBlackCenter();
             break;
-
         case GREEN_PICKUP_BALL:
             handlePickupBall();
             break;
-
         case GREEN_LAUNCH_BALL:
             handleLaunchBall();
             break;
-
         case GREEN_DESCEND_RAMP:
             handleDescendRamp();
             break;
@@ -462,58 +510,60 @@ void handleGreenPath() {
 }
 
 void handleClimbRamp() {
-    debugPrint("Climbing ramp");
-
     if (obstacleAhead()) {
         avoidObstacle();
         return;
     }
 
-    moveForward(SPEED_RAMP);
+    // Climb at full speed
+    goForward(SPEED_RAMP);
 
-    static unsigned long rampStart = millis();
-    if (millis() - rampStart > 5000) {
+    // Check if we've climbed enough (time-based for now)
+    static unsigned long climbStart = 0;
+    if (climbStart == 0) climbStart = millis();
+
+    if (millis() - climbStart > 4000) {
         debugPrint("Ramp climb complete");
         stopMotors();
-        delay(200);
+        delay(300);
         greenSubState = GREEN_NAVIGATE_RINGS;
-        rampStart = millis();
+        climbStart = 0;
     }
 }
 
 void handleNavigateRings() {
-    debugPrint("Navigating rings");
-
     readSensors();
 
-    if (isBlue()) {
-        debugPrint("On BLUE ring - moving inward");
-        moveForward(SPEED_SLOW);
-        delay(200);
-    } else if (isRed()) {
-        debugPrint("On RED ring - moving inward");
-        moveForward(SPEED_SLOW);
-        delay(200);
-    } else if (isBlack()) {
+    // Navigate through concentric rings toward black center
+    if (isOnBlackLine()) {
         debugPrint("BLACK center found!");
         stopMotors();
         greenSubState = GREEN_FIND_BLACK_CENTER;
         return;
-    } else {
-        static bool spiralDir = true;
-        if (spiralDir) {
-            turnLeft(SPEED_TURN);
-        } else {
-            turnRight(SPEED_TURN);
-        }
-        delay(100);
-        moveForward(SPEED_SLOW);
-        delay(150);
-        stopMotors();
-        spiralDir = !spiralDir;
     }
 
-    if (millis() - stateStartTime > 30000) {
+    if (isOnBlueSurface()) {
+        debugPrint("On BLUE ring");
+        goForward(SPEED_SLOW);
+        delay(300);
+    } else if (isOnRedLine()) {
+        debugPrint("On RED ring");
+        goForward(SPEED_SLOW);
+        delay(300);
+    } else {
+        // Spiral inward pattern
+        static int spiralStep = 0;
+        spiralStep++;
+
+        if (spiralStep % 2 == 0) {
+            turnLeftTime(SPEED_SEARCH, 100);
+        }
+        goForward(SPEED_SLOW);
+        delay(200);
+        stopMotors();
+    }
+
+    if (millis() - stateStartTime > 25000) {
         debugPrint("Ring navigation timeout");
         greenSubState = GREEN_PICKUP_BALL;
     }
@@ -546,15 +596,16 @@ void handleLaunchBall() {
     if (!ballLaunched) {
         debugPrint("Launching ball");
 
-        turnRightDegrees(45, SPEED_TURN);
+        // Turn toward blue zone
+        turnRightTime(SPEED_TURN, TURN_90_MS / 2);
         delay(200);
 
+        // Launch!
         armDown();
         delay(200);
         clawOpen();
-        delay(200);
-        armUp();
         delay(300);
+        armUp();
 
         ballLaunched = true;
         greenSubState = GREEN_DESCEND_RAMP;
@@ -565,15 +616,16 @@ void handleLaunchBall() {
 void handleDescendRamp() {
     debugPrint("Descending ramp");
 
-    turnRightDegrees(180, SPEED_TURN);
+    turn180();
     delay(200);
 
-    moveForward(SPEED_SLOW);
-    delay(5000);
+    goForward(SPEED_SLOW);
+    delay(4000);
     stopMotors();
 
     currentState = STATE_RETURN_HOME;
     stateStartTime = millis();
+    lastLineTime = millis();
 }
 
 // =====================
@@ -581,16 +633,15 @@ void handleDescendRamp() {
 // =====================
 void handleRedPath() {
     readSensors();
+    debugSensors();
 
     switch (redSubState) {
         case RED_FOLLOW_PATH:
             handleRedFollowPath();
             break;
-
         case RED_AVOID_OBSTACLE:
             handleRedAvoidObstacle();
             break;
-
         case RED_SHARP_TURN:
             handleRedSharpTurn();
             break;
@@ -604,19 +655,23 @@ void handleRedFollowPath() {
         return;
     }
 
-    if (isBlack()) {
-        debugPrint("Black obstacle - avoiding");
-        backup(300, SPEED_SLOW);
-        redSubState = RED_AVOID_OBSTACLE;
-        return;
-    }
+    // Check for black obstacles (not black lines - need to distinguish)
+    // For now, just avoid if ultrasonic sees something
 
-    if (isRed()) {
-        moveForward(SPEED_NORMAL);
+    if (isOnRedLine()) {
+        goForward(SPEED_FORWARD);
+        lastLineTime = millis();
     } else {
-        if (!searchForLine(2000)) {
-            debugPrint("Lost red path");
+        // Lost red line - search
+        unsigned long timeLost = millis() - lastLineTime;
+
+        if (timeLost < 500) {
+            goForward(SPEED_SLOW);
+        } else if (timeLost < 3000) {
             redSubState = RED_SHARP_TURN;
+        } else {
+            debugPrint("Red path lost - continuing");
+            currentState = STATE_RETURN_HOME;
         }
     }
 
@@ -630,71 +685,56 @@ void handleRedFollowPath() {
 void handleRedAvoidObstacle() {
     debugPrint("Avoiding obstacle on red path");
 
-    backup(BACKUP_MS, SPEED_SLOW);
-    delay(100);
+    avoidObstacle();
 
-    readSensors();
-    int leftDist, rightDist;
-
-    turnLeftDegrees(45, SPEED_TURN);
-    delay(100);
-    leftDist = getDistanceCM();
-
-    turnRightDegrees(90, SPEED_TURN);
-    delay(100);
-    rightDist = getDistanceCM();
-
-    turnLeftDegrees(45, SPEED_TURN);
-
-    if (leftDist > rightDist) {
-        turnLeftDegrees(60, SPEED_TURN);
-    } else {
-        turnRightDegrees(60, SPEED_TURN);
-    }
-
-    moveForwardTime(500, SPEED_SLOW);
-
-    if (searchForLine(SEARCH_TIMEOUT_MS)) {
+    // Try to find red line again
+    if (isOnRedLine()) {
         redSubState = RED_FOLLOW_PATH;
     } else {
-        recoveryAttempts++;
-        if (recoveryAttempts >= MAX_RECOVERY_ATTEMPTS) {
-            currentState = STATE_RETURN_HOME;
-        }
+        redSubState = RED_SHARP_TURN;
     }
 }
 
 void handleRedSharpTurn() {
-    debugPrint("Sharp turn detected");
+    debugPrint("Searching for red path");
 
-    backup(200, SPEED_SLOW);
+    stopMotors();
+    delay(100);
 
-    for (int angle = 30; angle <= 150; angle += 30) {
-        turnRightDegrees(30, SPEED_TURN);
-        delay(100);
+    // Scan right
+    for (int i = 0; i < 6; i++) {
+        turnRightTime(SPEED_SEARCH, 100);
         readSensors();
-        if (isRed()) {
-            debugPrint("Found red path after turn");
+        if (isOnRedLine()) {
+            debugPrint("Found red path");
             redSubState = RED_FOLLOW_PATH;
+            lastLineTime = millis();
             return;
         }
     }
 
-    turnLeftDegrees(180, SPEED_TURN);
+    // Return to center and scan left
+    turnLeftTime(SPEED_SEARCH, 600);
 
-    for (int angle = 30; angle <= 150; angle += 30) {
-        turnLeftDegrees(30, SPEED_TURN);
-        delay(100);
+    for (int i = 0; i < 6; i++) {
+        turnLeftTime(SPEED_SEARCH, 100);
         readSensors();
-        if (isRed()) {
-            debugPrint("Found red path after turn");
+        if (isOnRedLine()) {
+            debugPrint("Found red path");
             redSubState = RED_FOLLOW_PATH;
+            lastLineTime = millis();
             return;
         }
     }
 
-    debugPrint("Cannot find red path - returning home");
-    currentState = STATE_RETURN_HOME;
+    // Can't find it - move forward and try again
+    turnRightTime(SPEED_SEARCH, 300); // Return to roughly center
+    goForward(SPEED_SLOW);
+    delay(400);
+    stopMotors();
+
+    lastLineTime = millis();
+    redSubState = RED_FOLLOW_PATH;
 }
 
 // =====================
@@ -704,29 +744,25 @@ void handleReturnHome() {
     if (!returnStarted) {
         debugPrint("=== RETURNING HOME ===");
         returnStarted = true;
-
-        turnRightDegrees(180, SPEED_TURN);
+        turn180();
         delay(300);
+        lastLineTime = millis();
     }
 
     readSensors();
 
-    if (obstacleAhead()) {
-        avoidObstacle();
-        return;
-    }
-
-    if (isWhite()) {
-        debugPrint("Start zone detected!");
+    // Check if we're back at start (white zone)
+    if (isOnWhiteSurface()) {
+        debugPrint("Start zone found!");
         stopMotors();
         currentState = STATE_COMPLETE;
         return;
     }
 
-    followLineWithColor();
+    smartLineFollow();
 
     if (millis() - stateStartTime > 60000) {
-        debugPrint("Return timeout - stopping");
+        debugPrint("Return timeout");
         stopMotors();
         currentState = STATE_COMPLETE;
     }
@@ -737,9 +773,9 @@ void handleComplete() {
 
     unsigned long totalTime = millis() - missionStartTime;
     Serial.println("=== MISSION COMPLETE ===");
-    Serial.print("Total time: ");
+    Serial.print("Time: ");
     Serial.print(totalTime / 1000);
-    Serial.println(" seconds");
+    Serial.println("s");
 
     armDown();
     clawOpen();
@@ -751,51 +787,37 @@ void handleComplete() {
 
 void handleError() {
     stopMotors();
-    debugPrint("ERROR STATE - attempting recovery");
+    debugPrint("ERROR - recovering");
 
     recoveryAttempts++;
 
     if (recoveryAttempts < MAX_RECOVERY_ATTEMPTS) {
-        backup(500, SPEED_SLOW);
-        turnRightDegrees(90, SPEED_TURN);
-
-        if (searchForLine(SEARCH_TIMEOUT_MS)) {
-            currentState = previousState;
-            debugPrint("Recovery successful");
-        } else {
-            debugPrint("Recovery failed - returning home");
-            currentState = STATE_RETURN_HOME;
-        }
+        goBackward(SPEED_SLOW, 300);
+        turnRightTime(SPEED_TURN, TURN_90_MS);
+        lastLineTime = millis();
+        currentState = previousState;
     } else {
-        debugPrint("Max recovery attempts - giving up");
         currentState = STATE_RETURN_HOME;
     }
 }
 
 // =====================
-// MAIN SETUP AND LOOP
+// SETUP AND LOOP
 // =====================
 void setup() {
     Serial.begin(9600);
     delay(1000);
 
-    Serial.println("UTRA Biathlon Robot Starting...");
-    Serial.println("Press any key to begin mission or wait 3 seconds");
-
-    unsigned long waitStart = millis();
-    while (millis() - waitStart < 3000) {
-        if (Serial.available()) {
-            while (Serial.available()) Serial.read();
-            break;
-        }
-        delay(100);
-    }
+    Serial.println("UTRA Biathlon Robot");
+    Serial.println("Starting in 2 seconds...");
+    delay(2000);
 
     currentState = STATE_INIT;
 }
 
 void loop() {
-    if (millis() - missionStartTime > MISSION_TIMEOUT_MS && missionStartTime > 0) {
+    // Mission timeout
+    if (missionStartTime > 0 && millis() - missionStartTime > MISSION_TIMEOUT_MS) {
         debugPrint("MISSION TIMEOUT");
         currentState = STATE_COMPLETE;
     }
@@ -806,48 +828,37 @@ void loop() {
         case STATE_INIT:
             handleInit();
             break;
-
         case STATE_PICKUP_BOX:
             handlePickupBox();
             break;
-
         case STATE_CARRY_TO_ZONE:
             handleCarryToZone();
             break;
-
         case STATE_DROP_BOX:
             handleDropBox();
             break;
-
         case STATE_DETECT_PATH:
             handleDetectPath();
             break;
-
         case STATE_GREEN_PATH:
             handleGreenPath();
             break;
-
         case STATE_RED_PATH:
             handleRedPath();
             break;
-
         case STATE_RETURN_HOME:
             handleReturnHome();
             break;
-
         case STATE_COMPLETE:
             handleComplete();
             break;
-
         case STATE_ERROR:
             handleError();
             break;
-
         default:
             currentState = STATE_ERROR;
             break;
     }
 
-    debugState();
-    delay(50);
+    delay(30);
 }
