@@ -9,11 +9,27 @@ int bluePW = 0;
 
 int motorSpeed = 255;
 
+// Arm: UP = holding box at start; DOWN = gently drop when we see blue box.
+#define SERVO_PIN 3
+#define SERVO_CENTER  90   // straight ahead (mid-range)
+#define SERVO_LEFT    45   // look left
+#define SERVO_RIGHT  135   // look right
+#define SERVO_ARM_UP   30   // arm up = holding box (tune to your mechanism)
+#define SERVO_ARM_DOWN 150  // arm down = release/drop box (tune to your mechanism)
+
+// Blue box drop: back up this long, then lower arm
+const int BACKUP_SPEED = 150;
+const int BACKUP_MS = 600;   // how long to back up before dropping (tune as needed)
+
 void setup() {
     Serial.begin(9600);
     colorSensorSetup();
     ultrasonicSetup();
     motorSetup();
+    initServo(SERVO_PIN);
+    setServoAngle(SERVO_ARM_DOWN);   // start with arm down
+    delay(500);
+    setServoAngle(SERVO_ARM_UP);     // then move arm up (e.g. pick up / hold box)
 }
 
 enum ColorState {
@@ -38,12 +54,13 @@ bool searchForLine() {
     unsigned long start = millis();
     static bool searchLeft = true;
     while (millis() - start < (unsigned long)SEARCH_TIMEOUT_MS) {
-        if redPW < greenPW{
+        colorSensorRead(redPW, greenPW, bluePW);
+        if (redPW < greenPW) {
             stopMotors();
             Serial.println("Line found!");
             return true;
         }
-        if searchLeft{
+        if (searchLeft) {
             turnLeft(STEER_SPEED);
         }else{
             turnRight(STEER_SPEED);
@@ -55,16 +72,16 @@ bool searchForLine() {
     Serial.println("Search timeout");
     return false;
 }
-void avoidObstacle(){
+void avoidObstacle() {
     stopMotors();
     Serial.println("Obstacle detected, avoiding...");
     delay(200);
-    
+
+    // Fixed path: turn R -> move -> turn R -> move -> turn L -> move (ultrasonic not on servo)
     turnRight(AVOID_SPEED);
     delay(AVOID_TURN_MS);
     stopMotors();
     delay(100);
-
 
     moveForward(AVOID_SPEED);
     delay(AVOID_MOVE_MS);
@@ -95,21 +112,36 @@ void avoidObstacle(){
 
 #define OBSTACLE_THRESHOLD_CM 15
 
-//we alternate between left and right turns to search for the line
+// Blue box: lower PW = stronger color on TCS3200. Only drop once per run.
+static bool boxDropped = false;
 static bool searchLeft = true;
-
 
 void loop() {
 
     int distance = getDistanceCM();
-    if (distance >= 0 && distance < OBSTACLE_THRESHOLD_CM){
+    if (distance >= 0 && distance < OBSTACLE_THRESHOLD_CM) {
         avoidObstacle();
         return;
     }
 
-    // read color sensor and go forward when red
     colorSensorRead(redPW, greenPW, bluePW);
-    if (redPW < greenPW){
+
+    // See blue box -> back up and gently drop the box (once)
+    if (!boxDropped && bluePW < redPW && bluePW < greenPW) {
+        stopMotors();
+        Serial.println("Blue box - backing up and dropping...");
+        moveBackward(BACKUP_SPEED);
+        delay(BACKUP_MS);
+        stopMotors();
+        delay(200);
+        setServoAngle(SERVO_ARM_DOWN);   // gently lower arm to drop box
+        delay(500);   // give servo time to move
+        boxDropped = true;
+        return;
+    }
+
+    // Line follow: go forward when red
+    if (redPW < greenPW) {
         currentState = RED;
         moveForward(motorSpeed);
         Serial.println("Red (moving)");
