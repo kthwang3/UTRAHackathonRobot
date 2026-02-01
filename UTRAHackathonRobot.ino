@@ -28,6 +28,33 @@ const int AVOID_SPEED = 180;
 const int AVOID_TURN_MS = 400;
 const int AVOID_MOVE_MS = 500;
 
+// Line-follow steering (when off line, alternate turn to find it again)
+const int STEER_SPEED = 180;
+const int STEER_MS = 120;       // how long each search turn
+const int SEARCH_TIMEOUT_MS = 5000;  // max time to search for line after avoid
+
+// Returns true when red (on line) is seen again
+bool searchForLine() {
+    unsigned long start = millis();
+    static bool searchLeft = true;
+    while (millis() - start < (unsigned long)SEARCH_TIMEOUT_MS) {
+        if redPW < greenPW{
+            stopMotors();
+            Serial.println("Line found!");
+            return true;
+        }
+        if searchLeft{
+            turnLeft(STEER_SPEED);
+        }else{
+            turnRight(STEER_SPEED);
+        }   
+        delay(STEER_MS);
+        searchLeft = !searchLeft;
+    }
+    stopMotors();
+    Serial.println("Search timeout");
+    return false;
+}
 void avoidObstacle(){
     stopMotors();
     Serial.println("Obstacle detected, avoiding...");
@@ -63,9 +90,13 @@ void avoidObstacle(){
     delay(AVOID_MOVE_MS);
     stopMotors();
     delay(100);
+    searchForLine();
 }
 
 #define OBSTACLE_THRESHOLD_CM 15
+
+//we alternate between left and right turns to search for the line
+static bool searchLeft = true;
 
 
 void loop() {
@@ -81,11 +112,17 @@ void loop() {
     if (redPW < greenPW){
         currentState = RED;
         moveForward(motorSpeed);
-        serial.println("Red (moving)");
+        Serial.println("Red (moving)");
     }else{
         currentState = GREEN;
+        if (searchLeft){
+            turnLeft(STEER_SPEED);
+        }else{
+            turnRight(STEER_SPEED);
+        }
+        delay(STEER_MS);
         stopMotors();
-        serial.println("Green (stopped)");
+        searchLeft = !searchLeft;
     }
 
     Serial.print("dist=");
@@ -96,5 +133,5 @@ void loop() {
     Serial.print(greenPW);
     Serial.print(" B=");
     Serial.println(bluePW);
-    delay(100);
+    delay(50);
 }
