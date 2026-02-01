@@ -20,7 +20,7 @@
 // =====================
 // CONFIGURATION
 // =====================
-#define RIGHT_MOTOR_REVERSED true  // set true because this motor is physically reversed
+#define RIGHT_MOTOR_REVERSED false  // set true if this motor runs backward when others go forward
 
 // =====================
 // PUBLIC API

@@ -49,13 +49,15 @@ const int STEER_SPEED = 180;
 const int STEER_MS = 120;       // how long each search turn
 const int SEARCH_TIMEOUT_MS = 5000;  // max time to search for line after avoid
 
-// Returns true when red (on line) is seen again
+// Returns true when black or red line is seen again
 bool searchForLine() {
     unsigned long start = millis();
     static bool searchLeft = true;
     while (millis() - start < (unsigned long)SEARCH_TIMEOUT_MS) {
         colorSensorRead(redPW, greenPW, bluePW);
-        if (redPW < greenPW) {
+        bool onBlack = (redPW > BLACK_PW_THRESHOLD && greenPW > BLACK_PW_THRESHOLD);
+        bool onRed   = (redPW > greenPW);
+        if (onBlack || onRed) {
             stopMotors();
             Serial.println("Line found!");
             return true;
@@ -112,6 +114,9 @@ void avoidObstacle() {
 
 #define OBSTACLE_THRESHOLD_CM 15
 
+// Black line: high PW = low reflectance (dark). Tune so sensor on black gives PW above this.
+const int BLACK_PW_THRESHOLD = 1500;  // increase if black not detected, decrease if floor triggers it
+
 // Blue box: lower PW = stronger color on TCS3200. Only drop once per run.
 static bool boxDropped = false;
 static bool searchLeft = true;
@@ -140,16 +145,20 @@ void loop() {
         return;
     }
 
-    // Line follow: go forward when red
-    if (redPW < greenPW) {
+    // Line follow: go forward on black OR on red; otherwise search for the line
+    bool onBlack = (redPW > BLACK_PW_THRESHOLD && greenPW > BLACK_PW_THRESHOLD);
+    bool onRed   = (redPW > greenPW);
+
+    if (onBlack || onRed) {
         currentState = RED;
         moveForward(motorSpeed);
-        Serial.println("Red (moving)");
-    }else{
+        if (onBlack) Serial.println("Black (moving)");
+        else         Serial.println("Red (moving)");
+    } else {
         currentState = GREEN;
-        if (searchLeft){
+        if (searchLeft) {
             turnLeft(STEER_SPEED);
-        }else{
+        } else {
             turnRight(STEER_SPEED);
         }
         delay(STEER_MS);
