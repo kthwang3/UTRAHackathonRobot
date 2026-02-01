@@ -12,6 +12,7 @@ int motorSpeed = 255;
 void setup() {
     Serial.begin(9600);
     colorSensorSetup();
+    ultrasonicSetup();
     motorSetup();
 }
 
@@ -39,21 +40,8 @@ void loop() {
     }
     Serial.println(currentState);
     */
-    Serial.println("Testing: Move Backward + Turn Right");
-    moveBackward(motorSpeed);
-    delay(2000);           // move backward for 2 seconds
-    turnRight(motorSpeed);
-    delay(3000);           // turn right for 3 seconds
-    stopMotors();
-    Serial.println("Stopped");
-    delay(2000);           // wait 2 seconds
-
-    Serial.println("Testing: Move Backward + Turn Left");
-    moveBackward(motorSpeed);
-    delay(2000);           // move backward for 2 seconds
-    turnLeft(motorSpeed);
-    delay(3000);           // turn left for 3 seconds
-    stopMotors();
-    Serial.println("Stopped");
-    delay(2000);           // wait 2 seconds
+    moveForward(motorSetup);
+    int distance = getDistanceCM();
+    Serial.println(distance);
+    delay(2000);
 }
