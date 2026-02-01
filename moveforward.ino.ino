@@ -14,6 +14,7 @@
 
 // Speed values (0–255)
 int motorSpeed = 255;
+bool turnMode
 
 void setup() {
   // Set all motor pins as outputs
