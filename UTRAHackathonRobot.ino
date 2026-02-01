@@ -23,21 +23,61 @@ enum ColorState {
 
 ColorState currentState = GREEN;
 
+//Obstacle Avoidance
+const int AVOID_SPEED = 180;
+const int AVOID_TURN_MS = 400;
+const int AVOID_MOVE_MS = 500;
+
+void avoidObstacle(){
+    stopMotors();
+    Serial.println("Obstacle detected, avoiding...");
+    delay(200);
+    
+    turnRight(AVOID_SPEED);
+    delay(AVOID_TURN_MS);
+    stopMotors();
+    delay(100);
+
+
+    moveForward(AVOID_SPEED);
+    delay(AVOID_MOVE_MS);
+    stopMotors();
+    delay(100);
+
+    turnRight(AVOID_SPEED);
+    delay(AVOID_TURN_MS);
+    stopMotors();
+    delay(100);
+
+    moveForward(AVOID_SPEED);
+    delay(AVOID_MOVE_MS);
+    stopMotors();
+    delay(100);
+
+    turnLeft(AVOID_SPEED);
+    delay(AVOID_TURN_MS);
+    stopMotors();
+    delay(100);
+
+    moveForward(AVOID_SPEED);
+    delay(AVOID_MOVE_MS);
+    stopMotors();
+    delay(100);
+}
+
 #define OBSTACLE_THRESHOLD_CM 15
 
 
 void loop() {
 
     int distance = getDistanceCM();
-    if distance >= 0 && distance < OBSTACLE_THRESHOLD_CM{
-        stopMotors();
-        Serial.println("Obstacle: ");
-        Serial.println(distance);
-        delay(200);
+    if (distance >= 0 && distance < OBSTACLE_THRESHOLD_CM){
+        avoidObstacle();
         return;
     }
+
     if (greenPW < redPW){
-        greenState = GREEN;
+        currentState = GREEN;
         stopMotors();
         serial.println("Green (stopped)");
     }else if(redPW < greenPW){
@@ -77,8 +117,8 @@ void loop() {
     }
     Serial.println(currentState);
     */
-    moveForward(motorSetup);
-    int distance = getDistanceCM();
-    Serial.println(distance);
-    delay(2000);
+    if (currentState == RED){
+        moveForward(motorSpeed);
+    }
+    delay(100);
 }
