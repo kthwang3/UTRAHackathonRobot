@@ -6,8 +6,8 @@
 // =====================
 // PIN DEFINITIONS
 // =====================
-#define TRIG_PIN 11
-#define ECHO_PIN 10
+#define TRIG_PIN 2
+#define ECHO_PIN 13
 
 // =====================
 // PUBLIC API
